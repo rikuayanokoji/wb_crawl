@@ -13,12 +13,15 @@ class Session(object):
     def __init__(self, useragent=_DEFAULT_USERAGENT):
         self.session = requests.session()
 
-    def login(self, username, password):
+    def login(self, username, password, captcha=None):
         import weibo_web.sso
-        weibo_web.sso.WeiboSSO(self.session).login(username, password)
+        weibo_web.sso.WeiboSSO(self.session).login(username, password, captcha)
 
     def loads(self, dumped):
-        self.session.cookies = requests.utils.cookiejar_from_dict(dumped)
+        self.session.cookies = requests.utils.cookiejar_from_dict(pickle.loads(dumped))
 
     def dumps(self):
-        pickle.dumps(requests.utils.dict_from_cookiejar(self.session.cookies))
+        return pickle.dumps(requests.utils.dict_from_cookiejar(self.session.cookies))
+
+    def requests(self):
+        return self.session

@@ -18,6 +18,11 @@ __author__ = "riku"
 RE_LOCATION_REPLACE = re.compile(r".*location\.replace\([\"|\'](.+?)[\"|\']\).*")
 
 
+class CaptchaRequired(Exception):
+    def __init__(self, captcha):
+        self.captcha = captcha
+
+
 class LoginError(Exception):
     def __init__(self, code, reason):
         self.code = code
@@ -58,8 +63,10 @@ class WeiboSSO(object):
         _value.update(json.loads(r))
         return _value
 
-    def login(self, username, password):
-        prelogin = self.prelogin(username)
+    def login(self, username, password, captcha=None):
+        if not hasattr(self.session, "prelogin"):
+            self.session.prelogin = self.prelogin(username)
+        prelogin = self.session.prelogin
         self.rsa_key = rsa.PublicKey(int(prelogin["pubkey"], 16), 65537)
         post = {"entry": "weibo", "gateway": 1, "from": "", "savestate": 7, "useticket": 1,
                 "pagerefer": "http://d.weibo.com/",
@@ -80,13 +87,15 @@ class WeiboSSO(object):
                                                      str(prelogin["servertime"]), str(prelogin["nonce"]), password))
         post['rsakv'] = prelogin["rsakv"]
         if prelogin["showpin"] == 1:
-            self.get_login_pincode(prelogin["pcid"])
-            post["door"] = raw_input("Captcha: ")
+            if captcha:
+                post["door"] = captcha
+            else:
+                raise CaptchaRequired(captcha=self.get_login_pincode(prelogin["pcid"]))
         r = self.session.post("http://login.sina.com.cn/sso/login.php?client=ssologin.js(v1.4.18)", post,
                               headers={"Referer": "http://weibo.com/"})
         r = r._content.decode("gbk")
         if "passport.weibo.com/wbsso/login" in r:
-            r = self.session.get(RE_LOCATION_REPLACE.findall(r)[0])
+            self.session.get(RE_LOCATION_REPLACE.findall(r)[0])
         else:
             params = RE_LOCATION_REPLACE.findall(r)[0].split("?", 1)[1]
             params = dict([param.split("=") for param in params.split("&")])
@@ -96,12 +105,7 @@ class WeiboSSO(object):
         # bilogin.js: Math.floor(Math.random()*1e8)
         r = self.session.get("http://login.sina.com.cn/cgi/pin.php?r={rand}&s=0&p={pcid}".format(
             rand=random.randint(100000000, 1000000000), pcid=pcid))
-        if platform.system() == "Darwin":
-            with open("tmp.jpeg", "wp") as fp:
-                fp.write(r._content)
-            subprocess.Popen(["open", "tmp.jpeg"])
-        else:
-            webbrowser.open("data:image/jpeg;base64,%s" % urllib.quote(base64.encode(r._content)))
+        return r
 
     @staticmethod
     def rsa_encrypt_to_hex(key, plain):
